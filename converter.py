@@ -458,18 +458,10 @@ class MarkdownToWordConverter:
         """
         para_style = self.styles_config['paragraph']
         
-        # We need to process the children of the <li> element.
-        # The first paragraph is already created by _process_list for the list bullet/number.
-        # Any subsequent block-level content should be added as new paragraphs/blocks.
         
-        # Keep track of the last paragraph added for inline content.
-        # Initially, it's the list_item_paragraph.
         current_inline_paragraph = list_item_paragraph 
         
-        # This flag helps distinguish between content for the initial list item paragraph
-        # and subsequent block-level content that needs new paragraphs.
-        # If we encounter a block-level element, subsequent inline content
-        # should also go into new paragraphs.
+       
         has_block_content_started = False
 
         for child in item_html_element.contents: # Use .contents to get NavigableString and Tag
@@ -500,15 +492,10 @@ class MarkdownToWordConverter:
                         current_inline_paragraph = new_p # Update current for subsequent inline content
 
                 elif child.name in ['ul', 'ol']:
-                    # Nested lists are handled by _process_html_element which is called by _process_list
-                    # when it encounters 'ul' or 'ol' as a direct child of <li>.
-                    # This means nested lists will be processed in the main loop of _process_list
-                    # for the `item_html_element.find_all(['ul', 'ol'], recursive=False)` call.
-                    # So, we should *not* process them here to avoid double processing.
+                  
                     pass 
-                else: # Block-level elements like <p>, <pre>, <blockquote>, <table>, <hr>
-                    has_block_content_started = True # Subsequent content will be in new blocks
-                    # Process this block-level element, applying increased indentation
+                else: 
+                    has_block_content_started = True 
                     self._process_html_element(doc, child, md_dir, current_level=level + 1)
 
     def markdown_to_html(self, md_content):

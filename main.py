@@ -19,16 +19,9 @@ class WordPreviewWidget(QWidget):
         super().__init__(parent)
         self.web_view = QWebEngineView() # Use QWebEngineView internally for rendering HTML
         
-        # Simulate A4 page size (210mm x 297mm) at 96 DPI (standard for web)
-        # 1 inch = 2.54 cm = 96 pixels
-        # A4 width: 21.0 cm = 21.0 / 2.54 * 96 = 793.7 pixels
-        # A4 height: 29.7 cm = 29.7 / 2.54 * 96 = 1122.5 pixels
         self.page_width_px = 794
         self.page_height_px = 1123
 
-        # Default Word margins (top/bottom 2.54cm, left/right 3.17cm)
-        # 2.54 cm = 96 pixels
-        # 3.17 cm = 120 pixels
         self.margin_top_px = 96
         self.margin_bottom_px = 96
         self.margin_left_px = 120
@@ -625,8 +618,7 @@ class MarkdownToWordGUI(QMainWindow):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    # Ensure QApplication is initialized before QFontDatabase
-    # Check if PyQtWebEngine is available
+
     try:
         from PyQt5.QtWebEngineWidgets import QWebEngineView
     except ImportError:
