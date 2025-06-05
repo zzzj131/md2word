@@ -140,6 +140,26 @@ class MarkdownToWordConverter:
             shd.set(qn('w:val'), 'clear')
             shd.set(qn('w:fill'), hex_color_string)
             cell._tc.get_or_add_tcPr().append(shd)
+            
+    def _add_image_to_paragraph(self, paragraph, img_element, md_dir):
+        """向段落中添加图片"""
+        img_src = img_element.get('src')
+        alt_text = img_element.get('alt', '')
+        
+        if not os.path.isabs(img_src):
+            img_path = os.path.join(md_dir, img_src)
+        else:
+            img_path = img_src
+        
+        if os.path.exists(img_path):
+            try:
+                paragraph.add_run().add_picture(img_path)
+            except Exception as e:
+                print(f"警告: 无法插入图片 '{img_path}': {e}")
+                paragraph.add_run(f"[图片无法加载: {alt_text or img_src}]")
+        else:
+            print(f"警告: 图片文件 '{img_path}' (源: {img_src}) 未找到。")
+            paragraph.add_run(f"[图片未找到: {alt_text or img_src}]")
 
     def markdown_to_docx(self, md_file_path, docx_file_path):
         if not os.path.exists(md_file_path):
@@ -257,38 +277,7 @@ class MarkdownToWordConverter:
                 self._apply_paragraph_format(table.rows[0].cells[0].paragraphs[0], {'space_after_pt': self.styles_config.get('paragraph',{}).get('space_after_pt', 6)})
 
             elif tag_name == 'ul' or tag_name == 'ol':
-                list_items = element.find_all('li', recursive=False)
-                for item in list_items:
-                    list_style_name = 'ListBullet' if tag_name == 'ul' else 'ListNumber'
-                    p = doc.add_paragraph(style=list_style_name)
-                    
-                    para_style = self.styles_config['paragraph']
-                    for child in item.children:
-                        if child.name == 'strong' or child.name == 'b':
-                            run = p.add_run(child.get_text())
-                            self._apply_font_style(run, para_style)
-                            run.bold = True
-                        elif child.name == 'em' or child.name == 'i':
-                            run = p.add_run(child.get_text())
-                            self._apply_font_style(run, para_style)
-                            run.italic = True
-                        elif child.name == 'code':
-                            run = p.add_run(child.get_text())
-                            inline_code_style = self.styles_config.get('inline_code', {})
-                            code_font_name = inline_code_style.get('font_name', 'Courier New')
-                            code_font_size_ratio = inline_code_style.get('font_size_ratio', 0.9)
-                            code_color_rgb = inline_code_style.get('color_rgb', (50, 50, 50))
-                            self._apply_font_style(run, {
-                                'font_name': code_font_name,
-                                'font_size': para_style.get('font_size', 12) * code_font_size_ratio,
-                                'color_rgb': code_color_rgb
-                            })
-                        elif child.name is None:
-                            run = p.add_run(str(child))
-                            self._apply_font_style(run, para_style)
-                    
-                    self._apply_paragraph_format(p, para_style)
-                    p.paragraph_format.first_line_indent = None
+                self._process_list(doc, element, 0, md_dir)  # Pass md_dir for image paths
 
             elif tag_name == 'table':
                 header_row = element.find('thead').find('tr') if element.find('thead') else None
@@ -397,6 +386,78 @@ class MarkdownToWordConverter:
             if 'color_rgb' in value and isinstance(value['color_rgb'], list):
                 value['color_rgb'] = tuple(value['color_rgb'])
 
+    def _process_list(self, doc, list_element, level, md_dir):
+        """
+        递归处理嵌套列表
+        :param doc: Word文档对象
+        :param list_element: 列表元素(ul/ol)
+        :param level: 当前嵌套层级
+        :param md_dir: Markdown文件所在目录，用于解析图片路径
+        """
+        list_type = list_element.name  # 'ul' or 'ol'
+        list_items = list_element.find_all('li', recursive=False)
+        
+        for item in list_items:
+            # 创建列表项段落
+            list_style_name = 'ListBullet' if list_type == 'ul' else 'ListNumber'
+            p = doc.add_paragraph(style=list_style_name)
+            
+            # 设置列表缩进 (每级缩进0.5英寸)
+            p.paragraph_format.left_indent = Inches(0.5 * level)
+            p.paragraph_format.first_line_indent = Inches(-0.5)  # 悬挂缩进
+            
+            # 处理列表项内容
+            self._process_list_item_content(p, item, md_dir)
+            
+            # 处理嵌套列表
+            nested_lists = item.find_all(['ul', 'ol'], recursive=False)
+            for nested_list in nested_lists:
+                self._process_list(doc, nested_list, level + 1, md_dir)
+    
+    def _process_list_item_content(self, p, item, md_dir):
+        """处理列表项中的文本和内联元素
+        :param p: 段落对象
+        :param item: 列表项元素
+        :param md_dir: Markdown文件目录，用于解析图片路径
+        """
+        para_style = self.styles_config['paragraph']
+        
+        # 遍历列表项的所有子元素
+        for child in item.children:
+            if child.name in ['ul', 'ol']:
+                # 嵌套列表会在外层处理，跳过
+                continue
+                
+            if child.name == 'img':
+                # 处理列表中的图片，传递md_dir
+                self._add_image_to_paragraph(p, child, md_dir)
+                
+            elif child.name in ['strong', 'b']:
+                run = p.add_run(child.get_text())
+                self._apply_font_style(run, para_style)
+                run.bold = True
+                
+            elif child.name in ['em', 'i']:
+                run = p.add_run(child.get_text())
+                self._apply_font_style(run, para_style)
+                run.italic = True
+                
+            elif child.name == 'code':
+                run = p.add_run(child.get_text())
+                inline_code_style = self.styles_config.get('inline_code', {})
+                code_font_name = inline_code_style.get('font_name', 'Courier New')
+                code_font_size_ratio = inline_code_style.get('font_size_ratio', 0.9)
+                code_color_rgb = inline_code_style.get('color_rgb', (50, 50, 50))
+                self._apply_font_style(run, {
+                    'font_name': code_font_name,
+                    'font_size': para_style.get('font_size', 12) * code_font_size_ratio,
+                    'color_rgb': code_color_rgb
+                })
+                
+            elif child.name is None:  # 纯文本节点
+                run = p.add_run(str(child))
+                self._apply_font_style(run, para_style)
+
     def markdown_to_html(self, md_content):
         """
         将Markdown内容转换为HTML，并尝试注入CSS样式以模拟Word样式。
@@ -453,7 +514,7 @@ class MarkdownToWordConverter:
                 css += "background-color: #f0f0f0; padding: 2px 4px; border-radius: 3px;}"
                 css_styles.append(css)
 
-        # Add basic list styling for preview
+        # 添加列表样式
         css_styles.append("ul, ol { margin-left: 20px; }")
         css_styles.append("li { margin-bottom: 5px; }")
         css_styles.append("table { border-collapse: collapse; width: 100%; }")
