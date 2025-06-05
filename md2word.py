@@ -217,6 +217,18 @@ class WordPreviewWidget(QWidget):
                 th {{
                     background-color: #f2f2f2;
                 }}
+                /* List specific styles for better rendering */
+                ul, ol {{
+                    margin: 0;
+                    padding-left: 20px; /* Base indentation for lists */
+                }}
+                ul ul, ol ol, ul ol, ol ul {{
+                    padding-left: 20px; /* Additional indentation for nested lists */
+                }}
+                li {{
+                    margin-bottom: 5px;
+                    list-style-position: inside;
+                }}
                 {dynamic_css}
             </style>
         </head>
