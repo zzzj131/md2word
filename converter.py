@@ -9,6 +9,7 @@ from docx.oxml.shared import OxmlElement
 import os
 import re
 import json
+from PyQt5.QtCore import QUrl # Import QUrl for converting local paths to file URLs
 
 class MarkdownToWordConverter:
     DEFAULT_STYLES_CONFIG = {
@@ -492,18 +493,31 @@ class MarkdownToWordConverter:
                         current_inline_paragraph = new_p # Update current for subsequent inline content
 
                 elif child.name in ['ul', 'ol']:
-                  
-                    pass 
+                    # Recursively process nested lists
+                    self._process_list(doc, child, level + 1, md_dir)
+                    has_block_content_started = True # Treat nested list as a block that breaks inline flow
                 else: 
                     has_block_content_started = True 
                     self._process_html_element(doc, child, md_dir, current_level=level + 1)
 
-    def markdown_to_html(self, md_content):
+    def markdown_to_html(self, md_content, md_dir=None):
         """
         将Markdown内容转换为HTML，并尝试注入CSS样式以模拟Word样式。
+        :param md_content: Markdown文本内容
+        :param md_dir: Markdown文件所在的目录，用于解析相对图片路径
         """
         html_content = markdown.markdown(md_content, extensions=['fenced_code', 'tables', 'sane_lists'])
         soup = BeautifulSoup(html_content, 'html.parser')
+
+        # Convert relative image paths to absolute paths for HTML preview
+        if md_dir:
+            for img_tag in soup.find_all('img'):
+                img_src = img_tag.get('src')
+                if img_src and not (img_src.startswith('http://') or img_src.startswith('https://') or img_src.startswith('file://')):
+                    # 这是一个相对路径，转换为绝对文件URL
+                    abs_img_path = os.path.abspath(os.path.join(md_dir, img_src))
+                    # 使用QUrl.fromLocalFile()来确保正确的file:// URL格式，它会处理平台差异
+                    img_tag['src'] = QUrl.fromLocalFile(abs_img_path).toString()
 
         # 动态生成CSS
         css_styles = []

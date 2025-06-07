@@ -565,8 +565,11 @@ class MarkdownToWordGUI(QMainWindow):
                 md_content = f.read()
             
             self._update_current_styles_from_gui() # Ensure latest styles are used for preview
-            html_preview_content = self.converter.markdown_to_html(md_content)
-            self.word_preview.set_content(html_preview_content, self.current_styles, base_url=QUrl.fromLocalFile(os.path.abspath(md_path) + "/"))
+            md_dir = os.path.dirname(os.path.abspath(md_path)) # Get the directory of the markdown file
+            html_preview_content = self.converter.markdown_to_html(md_content, md_dir) # Pass md_dir
+            # Set baseUrl to the directory of the markdown file for correct relative path resolution
+            base_url = QUrl.fromLocalFile(md_dir)
+            self.word_preview.set_content(html_preview_content, self.current_styles, base_url=base_url)
         except Exception as e:
             QMessageBox.critical(self, "预览失败", f"生成预览时发生错误: {e}")
 
