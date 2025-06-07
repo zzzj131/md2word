@@ -49,8 +49,6 @@ python main.py
 *   `Markdown`
 *   `pillow`
 *   `pip`
-*   `pyandoc`
-*   `pypandoc`
 *   `PyQt5`
 *   `PyQt5-Qt5`
 *   `PyQt5_sip`
