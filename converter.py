@@ -1,110 +1,107 @@
 import markdown
 from bs4 import BeautifulSoup, NavigableString, Tag
 from docx import Document
-from docx.shared import Pt, RGBColor, Inches
+from docx.shared import Pt, RGBColor, Inches, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml.ns import qn, nsdecls
-from docx.oxml import parse_xml
+from docx.enum.style import WD_STYLE_TYPE
+from docx.oxml.ns import qn #, nsdecls
+# from docx.oxml import parse_xml # Not used directly, can be removed if not needed elsewhere
 from docx.oxml.shared import OxmlElement
 import os
 import re
 import json
-from PyQt5.QtCore import QUrl # Import QUrl for converting local paths to file URLs
+from PyQt5.QtCore import QUrl # For converting local paths to file URLs
 
 class MarkdownToWordConverter:
     DEFAULT_STYLES_CONFIG = {
         'H1': {
-            'font_name': '黑体',
-            'font_size': 24,
-            'bold': True,
-            'italic': False,
-            'color_rgb': (0, 0, 0),
-            'space_before_pt': 12,
-            'space_after_pt': 6,
+            'font_name': '黑体', 'font_size': 24, 'bold': True, 'italic': False, 'color_rgb': (0, 0, 0),
+            'space_before_pt': 12, 'space_after_pt': 6, 'alignment': 'LEFT'
         },
         'H2': {
-            'font_name': '黑体',
-            'font_size': 20,
-            'bold': True,
-            'italic': False,
-            'color_rgb': (0, 0, 0),
-            'space_before_pt': 10,
-            'space_after_pt': 5,
+            'font_name': '黑体', 'font_size': 20, 'bold': True, 'italic': False, 'color_rgb': (0, 0, 0),
+            'space_before_pt': 10, 'space_after_pt': 5, 'alignment': 'LEFT'
         },
         'H3': {
-            'font_name': '黑体',
-            'font_size': 18,
-            'bold': True,
-            'italic': False,
-            'color_rgb': (0, 0, 0),
-            'space_before_pt': 8,
-            'space_after_pt': 4,
+            'font_name': '黑体', 'font_size': 18, 'bold': True, 'italic': False, 'color_rgb': (0, 0, 0),
+            'space_before_pt': 8, 'space_after_pt': 4, 'alignment': 'LEFT'
         },
         'H4': {
-            'font_name': '宋体',
-            'font_size': 16,
-            'bold': True,
-            'italic': False,
-            'color_rgb': (50, 50, 50),
-            'space_before_pt': 6,
-            'space_after_pt': 3,
+            'font_name': '宋体', 'font_size': 16, 'bold': True, 'italic': False, 'color_rgb': (50, 50, 50),
+            'space_before_pt': 6, 'space_after_pt': 3, 'alignment': 'LEFT'
         },
         'H5': {
-            'font_name': '宋体',
-            'font_size': 14,
-            'bold': True,
-            'italic': False,
-            'color_rgb': (70, 70, 70),
-            'space_before_pt': 5,
-            'space_after_pt': 2,
+            'font_name': '宋体', 'font_size': 14, 'bold': True, 'italic': False, 'color_rgb': (70, 70, 70),
+            'space_before_pt': 5, 'space_after_pt': 2, 'alignment': 'LEFT'
         },
         'H6': {
-            'font_name': '宋体',
-            'font_size': 12,
-            'bold': True,
-            'italic': False,
-            'color_rgb': (90, 90, 90),
-            'space_before_pt': 4,
-            'space_after_pt': 2,
+            'font_name': '宋体', 'font_size': 12, 'bold': True, 'italic': False, 'color_rgb': (90, 90, 90),
+            'space_before_pt': 4, 'space_after_pt': 2, 'alignment': 'LEFT'
         },
         'paragraph': {
-            'font_name': '宋体',
-            'font_size': 12,
-            'bold': False,
-            'italic': False,
-            'color_rgb': (0, 0, 0),
-            'line_spacing': 1.5,
-            'first_line_indent_cm': 0.74,
-            'space_after_pt': 6,
+            'font_name': '宋体', 'font_size': 12, 'bold': False, 'italic': False, 'color_rgb': (0, 0, 0),
+            'line_spacing': 1.5, 'first_line_indent_cm': 0.0, # Default to no indent, can be set e.g. 0.74
+            'space_before_pt': 0, 'space_after_pt': 6, 'alignment': 'LEFT' # Default 6pt after paragraph
         },
         'code_block': {
-            'font_name': 'Courier New',
-            'font_size': 10,
-            'bold': False,
-            'italic': False,
-            'color_rgb': (0, 0, 0),
-            'background_color': "F0F0F0",
-            'line_spacing': 1.0,
+            'font_name': 'Consolas', 'font_size': 10, 'bold': False, 'italic': False, 'color_rgb': (0, 0, 0),
+            'background_color': "F0F0F0", 'line_spacing': 1.0, 'space_before_pt': 6, 'space_after_pt': 6
         },
-        'inline_code': { # New style for inline code
-            'font_name': 'Courier New',
-            'font_size_ratio': 0.9, # Relative to paragraph font size
-            'color_rgb': (50, 50, 50)
+        'inline_code': { # Style for inline <code> elements
+            'font_name': 'Consolas', # Will use this font
+            'font_size_ratio': 0.9,  # Relative to surrounding paragraph font size
+            'color_rgb': (50, 50, 50),
+            'background_color': "EEEEEE" # Optional background for inline code in Word (via run shading)
         }
     }
 
     def __init__(self, styles_config=None):
-        self.styles_config = styles_config if styles_config is not None else self.DEFAULT_STYLES_CONFIG.copy()
+        # Make a deep copy to prevent modification of class default or shared instances
+        if styles_config is not None:
+            self.styles_config = {k: v.copy() for k, v in styles_config.items()}
+        else:
+            self.styles_config = {k: v.copy() for k, v in self.DEFAULT_STYLES_CONFIG.items()}
+        self._ensure_rgb_tuples()
 
-    def _apply_font_style(self, run, style_config):
+
+    def _ensure_rgb_tuples(self):
+        """Ensure all color_rgb values are tuples, as JSON loads them as lists."""
+        for style_name, config in self.styles_config.items():
+            if 'color_rgb' in config and isinstance(config['color_rgb'], list):
+                config['color_rgb'] = tuple(config['color_rgb'])
+
+    def _apply_font_style(self, run, style_config, base_font_size_pt=None):
         font = run.font
-        font.name = style_config.get('font_name', '宋体')
-        font.element.rPr.rFonts.set(qn('w:eastAsia'), style_config.get('font_name', '宋体'))
-        font.size = Pt(style_config.get('font_size', 12))
+        font.name = style_config.get('font_name', 'Calibri') # Default to Calibri if not specified
+        # For East Asian fonts, it's crucial to set w:eastAsia
+        if font.name: # Check if font_name is not empty
+             font.element.rPr.rFonts.set(qn('w:eastAsia'), font.name)
+
+        font_size = style_config.get('font_size')
+        font_size_ratio = style_config.get('font_size_ratio')
+
+        if font_size is not None:
+            font.size = Pt(font_size)
+        elif font_size_ratio is not None and base_font_size_pt is not None:
+            font.size = Pt(base_font_size_pt * font_size_ratio)
+        else:
+            font.size = Pt(11) # Default font size if none specified
+
         font.bold = style_config.get('bold', False)
         font.italic = style_config.get('italic', False)
-        if 'color_rgb' in style_config:
-            font.color.rgb = RGBColor(*style_config['color_rgb'])
+        
+        color_rgb = style_config.get('color_rgb')
+        if color_rgb and isinstance(color_rgb, (tuple, list)) and len(color_rgb) == 3:
+            font.color.rgb = RGBColor(*color_rgb)
+        
+        # Background color for inline code (applied as run shading)
+        if 'background_color' in style_config and style_config.get('background_color'):
+            # This is for inline code, code blocks use cell background
+            shd = OxmlElement('w:shd')
+            shd.set(qn('w:val'), 'clear')
+            shd.set(qn('w:fill'), style_config['background_color'])
+            run.element.rPr.append(shd)
+
 
     def _apply_paragraph_format(self, paragraph, style_config):
         p_format = paragraph.paragraph_format
@@ -114,488 +111,568 @@ class MarkdownToWordConverter:
             p_format.space_after = Pt(style_config['space_after_pt'])
         if 'line_spacing' in style_config:
             p_format.line_spacing = style_config['line_spacing']
-        if 'first_line_indent_cm' in style_config:
-            p_format.first_line_indent = Inches(style_config['first_line_indent_cm'] / 2.54)
-        if 'alignment' in style_config:
-            alignment_map = {
-                'LEFT': WD_ALIGN_PARAGRAPH.LEFT,
-                'CENTER': WD_ALIGN_PARAGRAPH.CENTER,
-                'RIGHT': WD_ALIGN_PARAGRAPH.RIGHT,
-                'JUSTIFY': WD_ALIGN_PARAGRAPH.JUSTIFY
-            }
-            p_format.alignment = alignment_map.get(style_config['alignment'].upper(), WD_ALIGN_PARAGRAPH.LEFT)
+        if 'first_line_indent_cm' in style_config and style_config['first_line_indent_cm'] > 0:
+            p_format.first_line_indent = Cm(style_config['first_line_indent_cm'])
+        else:
+            p_format.first_line_indent = None # Remove indent if 0 or not specified
+
+        alignment_map = {
+            'LEFT': WD_ALIGN_PARAGRAPH.LEFT,
+            'CENTER': WD_ALIGN_PARAGRAPH.CENTER,
+            'RIGHT': WD_ALIGN_PARAGRAPH.RIGHT,
+            'JUSTIFY': WD_ALIGN_PARAGRAPH.JUSTIFY
+        }
+        p_format.alignment = alignment_map.get(str(style_config.get('alignment', 'LEFT')).upper(), WD_ALIGN_PARAGRAPH.LEFT)
+
 
     def _set_cell_background(self, cell, hex_color_string):
         if hex_color_string:
-            # Ensure hex_color_string is a valid 6-digit hex code (e.g., "RRGGBB")
-            # python-docx shading expects a hex string without '#'
             if hex_color_string.startswith('#'):
                 hex_color_string = hex_color_string[1:]
-            
-            # Set the background color using the shading property
-            # The fill property expects a hex color string (e.g., "FF0000" for red)
-            # The val property specifies the shading pattern, "clear" means solid fill
-            # Use OxmlElement to correctly build the XML element
-            from docx.oxml.shared import OxmlElement
-            shd = OxmlElement('w:shd')
-            shd.set(qn('w:val'), 'clear')
-            shd.set(qn('w:fill'), hex_color_string)
-            cell._tc.get_or_add_tcPr().append(shd)
+            if len(hex_color_string) == 6: # Ensure it's a valid hex
+                shd = OxmlElement('w:shd')
+                shd.set(qn('w:val'), 'clear')
+                shd.set(qn('w:fill'), hex_color_string.upper())
+                # Ensure tcPr exists
+                if cell._tc.tcPr is None:
+                    cell._tc.get_or_add_tcPr()
+                cell._tc.tcPr.append(shd)
             
     def _add_image_to_paragraph(self, paragraph, img_element, md_dir):
-        """向段落中添加图片"""
         img_src = img_element.get('src')
         alt_text = img_element.get('alt', '')
         
-        if not os.path.isabs(img_src):
-            img_path = os.path.join(md_dir, img_src)
-        else:
-            img_path = img_src
-        
-        if os.path.exists(img_path):
-            try:
-                paragraph.add_run().add_picture(img_path)
-            except Exception as e:
-                print(f"警告: 无法插入图片 '{img_path}': {e}")
-                paragraph.add_run(f"[图片无法加载: {alt_text or img_src}]")
-        else:
-            print(f"警告: 图片文件 '{img_path}' (源: {img_src}) 未找到。")
-            paragraph.add_run(f"[图片未找到: {alt_text or img_src}]")
+        # Resolve image path (can be web URL or local path)
+        if img_src.startswith(('http://', 'https://')):
+            # For web URLs, python-docx cannot directly embed. User needs to download and insert.
+            # For now, we'll just add a placeholder text.
+            run = paragraph.add_run(f"[Web Image: {alt_text or img_src}]")
+            run.italic = True
+            print(f"Info: Web image '{img_src}' cannot be embedded directly. Added placeholder.")
+            return
 
-    def _add_inline_content_to_paragraph(self, paragraph, content_element, parent_style, md_dir):
+        # Handle local file paths, including file:/// URLs
+        local_img_path = ""
+        if img_src.startswith('file:///'):
+            local_img_path = QUrl(img_src).toLocalFile()
+        elif not os.path.isabs(img_src) and md_dir: # Relative path
+            local_img_path = os.path.join(md_dir, img_src)
+        elif os.path.isabs(img_src): # Absolute path
+            local_img_path = img_src
+        
+        if local_img_path and os.path.exists(local_img_path):
+            try:
+                # Attempt to add picture. Consider desired width.
+                # For now, default width. Can be enhanced to parse width from style or attributes.
+                paragraph.add_run().add_picture(local_img_path) # Default width
+            except Exception as e:
+                print(f"Warning: Could not insert image '{local_img_path}': {e}")
+                paragraph.add_run(f"[Image load error: {alt_text or os.path.basename(local_img_path)}]")
+        else:
+            print(f"Warning: Image file not found or path invalid: '{img_src}' (resolved to '{local_img_path}')")
+            paragraph.add_run(f"[Image not found: {alt_text or img_src}]")
+
+    def _add_inline_content_to_paragraph(self, paragraph, content_element, parent_style_config, md_dir):
         """
         Adds inline content (text, strong, em, code, img, a) to a paragraph.
-        Handles recursive processing of inline children if a tag has them.
+        Handles recursive processing of inline children.
         """
+        base_font_size = parent_style_config.get('font_size', 12) # Get base font size from parent (paragraph)
+
         if isinstance(content_element, NavigableString):
-            run = paragraph.add_run(str(content_element))
-            self._apply_font_style(run, parent_style)
+            text = str(content_element)
+            # Markdown often adds newlines that result in empty strings after strip, ignore them unless they are actual spaces.
+            if text.strip() or text == " ": # Keep single spaces
+                run = paragraph.add_run(text)
+                self._apply_font_style(run, parent_style_config, base_font_size)
         elif isinstance(content_element, Tag):
-            if content_element.name in ['strong', 'b']:
-                run = paragraph.add_run(content_element.get_text())
-                self._apply_font_style(run, parent_style)
-                run.bold = True
-            elif content_element.name in ['em', 'i']:
-                run = paragraph.add_run(content_element.get_text())
-                self._apply_font_style(run, parent_style)
-                run.italic = True
-            elif content_element.name == 'code':
-                run = paragraph.add_run(content_element.get_text())
-                inline_code_style = self.styles_config.get('inline_code', {})
-                code_font_name = inline_code_style.get('font_name', 'Courier New')
-                code_font_size_ratio = inline_code_style.get('font_size_ratio', 0.9)
-                code_color_rgb = inline_code_style.get('color_rgb', (50, 50, 50))
-                self._apply_font_style(run, {
-                    'font_name': code_font_name,
-                    'font_size': parent_style.get('font_size', 12) * code_font_size_ratio,
-                    'color_rgb': code_color_rgb
-                })
-            elif content_element.name == 'img':
+            tag_name = content_element.name
+            # print(f"Processing inline tag: {tag_name}")
+
+            if tag_name in ['strong', 'b']:
+                # Create a new style config for bold, inheriting from parent
+                current_run_style = parent_style_config.copy()
+                current_run_style['bold'] = True
+                for child in content_element.contents:
+                    self._add_inline_content_to_paragraph(paragraph, child, current_run_style, md_dir)
+            elif tag_name in ['em', 'i']:
+                current_run_style = parent_style_config.copy()
+                current_run_style['italic'] = True
+                for child in content_element.contents:
+                    self._add_inline_content_to_paragraph(paragraph, child, current_run_style, md_dir)
+            elif tag_name == 'code':
+                # Use 'inline_code' style, but pass paragraph's font size for ratio calculation
+                inline_code_style_config = self.styles_config.get('inline_code', {}).copy()
+                # Text for inline code
+                code_text = content_element.get_text()
+                if code_text:
+                    run = paragraph.add_run(code_text)
+                    self._apply_font_style(run, inline_code_style_config, base_font_size_pt=base_font_size)
+            elif tag_name == 'img':
                 self._add_image_to_paragraph(paragraph, content_element, md_dir)
-            elif content_element.name == 'a':
-                # Handle links: add text and potentially set hyperlink
-                # For now, just add text with paragraph style
-                run = paragraph.add_run(content_element.get_text())
-                self._apply_font_style(run, parent_style)
-                # To add a real hyperlink:
-                # rId = paragraph.part.relate_to(content_element['href'], RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
-                # hyperlink = OxmlElement('w:hyperlink')
-                # hyperlink.set(qn('r:id'), rId)
-                # run._r.append(hyperlink)
-                # run.font.color.rgb = RGBColor(0x00, 0x00, 0xFF) # Blue color for link
+            elif tag_name == 'a':
+                # For links, for now, just add text with parent style. Hyperlinking is more complex.
+                link_text = content_element.get_text()
+                # href = content_element.get('href', '')
+                run = paragraph.add_run(link_text)
+                self._apply_font_style(run, parent_style_config, base_font_size)
+                # Could add hyperlink styling (blue, underline) here if desired, even without full hyperlink functionality
+                # run.font.color.rgb = RGBColor(0x05, 0x63, 0xC1)
                 # run.font.underline = True
-            else:
-                # Recursively process children of other inline tags if any (e.g., <span>)
-                for child_of_inline in content_element.children:
-                    self._add_inline_content_to_paragraph(paragraph, child_of_inline, parent_style, md_dir)
+            elif tag_name == 'br':
+                paragraph.add_run().add_break()
+            else: # Other inline tags (e.g., span, sub, sup - though not standard MD)
+                for child in content_element.children:
+                    self._add_inline_content_to_paragraph(paragraph, child, parent_style_config, md_dir)
 
-    def _process_html_element(self, doc, element, md_dir, current_level=0):
-        """
-        处理单个HTML块级元素并将其添加到Word文档中。
-        :param doc: Word文档对象
-        :param element: BeautifulSoup Tag对象 (块级元素，如h1, p, pre, ul, ol, table)
-        :param md_dir: Markdown文件所在目录
-        :param current_level: 当前元素所在的列表嵌套层级，用于缩进
-        """
+
+    def _process_html_element(self, doc, element, md_dir, current_list_level=0, in_list_item=False):
         tag_name = element.name
-        para_style = self.styles_config['paragraph']
-        
-        # Calculate base indentation for this block, useful for blocks within lists
-        base_indent = Inches(0.5 * current_level)
+        # print(f"Processing block tag: {tag_name}, list_level: {current_list_level}, in_list_item: {in_list_item}")
 
+        para_style_config = self.styles_config.get('paragraph', self.DEFAULT_STYLES_CONFIG['paragraph'])
+        
         if re.match(r'h[1-6]', tag_name):
             level = int(tag_name[1])
             style_key = tag_name.upper()
-            heading_style = self.styles_config.get(style_key, self.styles_config['paragraph'])
+            heading_style_config = self.styles_config.get(style_key, para_style_config)
+            
+            text_content = element.get_text(separator='').strip() 
+            p = doc.add_heading(level=level) 
+            
+            for child_content in element.contents:
+                self._add_inline_content_to_paragraph(p, child_content, heading_style_config, md_dir)
+            
+            # Check if paragraph is effectively empty (no text and no drawing elements like images)
+            has_drawing = any(True for run in p.runs for el in run.element.xpath('.//w:drawing'))
+            if not p.text.strip() and not has_drawing:
+                # This heading is empty. Word usually handles empty headings fine.
+                # If you want to remove it: (Caution: modifying doc.element.body can be risky)
+                # try:
+                #     if p._element.getparent() is not None:
+                #         p._element.getparent().remove(p._element)
+                # except AttributeError: # Should not happen if p is valid paragraph
+                #     pass 
+                pass # For now, let Word handle empty headings.
 
-            p = doc.add_heading(element.get_text(), level=level)
-            if p.runs:
-                self._apply_font_style(p.runs[0], heading_style)
-            self._apply_paragraph_format(p, heading_style)
-            # Apply additional indentation if within a list
-            if current_level > 0:
-                p.paragraph_format.left_indent = base_indent
+            self._apply_paragraph_format(p, heading_style_config)
+            if current_list_level > 0 : 
+                 p.paragraph_format.left_indent = Cm(1.27 * current_list_level) 
+
 
         elif tag_name == 'p':
-            p = doc.add_paragraph()
-            if current_level > 0: # Apply indentation if part of a list
-                p.paragraph_format.left_indent = base_indent
+            if in_list_item and not getattr(element, '_is_list_item_para_handled', False):
+                p = doc.add_paragraph() # This case might need refinement based on list item logic
+                element._is_list_item_para_handled = True 
+            else:
+                 p = doc.add_paragraph()
+
+            self._apply_paragraph_format(p, para_style_config)
+            if current_list_level > 0:
+                p.paragraph_format.left_indent = Cm(1.27 * current_list_level) 
+
+            for child_content in element.contents:
+                self._add_inline_content_to_paragraph(p, child_content, para_style_config, md_dir)
             
-            # Process all children of the paragraph for inline content
-            for child in element.children:
-                self._add_inline_content_to_paragraph(p, child, para_style, md_dir)
-            self._apply_paragraph_format(p, para_style)
+            # Check if paragraph is effectively empty (no text and no drawing elements like images)
+            has_drawing = any(True for run in p.runs for el in run.element.xpath('.//w:drawing'))
+            if not p.text.strip() and not has_drawing:
+                 # This paragraph is empty. Word usually handles empty paragraphs.
+                 # If you want to remove it: (Caution)
+                 # try:
+                 #    if p._element.getparent() is not None:
+                 #        p._element.getparent().remove(p._element)
+                 # except AttributeError:
+                 #    pass
+                 pass # For now, let Word handle empty paragraphs.
+
 
         elif tag_name == 'pre':
             code_text = element.find('code').get_text() if element.find('code') else element.get_text()
-            code_style = self.styles_config['code_block']
+            code_block_style_config = self.styles_config.get('code_block', self.DEFAULT_STYLES_CONFIG['code_block'])
 
+            # Using a table for background color is a common workaround
             table = doc.add_table(rows=1, cols=1)
-            table.autofit = False
-            # Calculate width adjusted for indentation
-            page_content_width_inches = 6.5 # A common default content width for A4
-            effective_width_inches = page_content_width_inches - (0.5 * current_level)
-            if effective_width_inches < 1: # Prevent negative or too small width
-                effective_width_inches = 1
-            table.columns[0].width = Inches(effective_width_inches)
+            table.autofit = False 
+            # Try to make table width responsive to nesting, assuming A4 page (approx 16cm content width)
+            content_width_cm = 16.0 - (1.27 * current_list_level)
+            table.columns[0].width = Cm(max(content_width_cm, 5.0)) # Minimum width 5cm
 
             cell = table.cell(0, 0)
-            if 'background_color' in code_style:
-                self._set_cell_background(cell, code_style['background_color'])
-
-            if cell.paragraphs:
-                p = cell.paragraphs[0]
-                p.clear()
-            else:
-                p = cell.add_paragraph()
+            if 'background_color' in code_block_style_config:
+                self._set_cell_background(cell, code_block_style_config['background_color'])
             
-            # Apply indentation to the paragraph within the cell
-            if current_level > 0:
-                p.paragraph_format.left_indent = base_indent
-            
-            for line in code_text.splitlines():
-                run = p.add_run(line + '\n')
-                self._apply_font_style(run, code_style)
-            
-            if p.runs and p.runs[-1].text.endswith('\n'):
-                 p.runs[-1].text = p.runs[-1].text[:-1]
+            # Code block paragraph within the cell
+            p = cell.paragraphs[0] if cell.paragraphs else cell.add_paragraph()
+            p.clear() # Clear any default run
 
-            self._apply_paragraph_format(p, code_style)
-            self._apply_paragraph_format(table.rows[0].cells[0].paragraphs[0], {'space_after_pt': self.styles_config.get('paragraph',{}).get('space_after_pt', 6)})
+            # Apply paragraph formatting (like line spacing) from code_block_style_config to the paragraph in cell
+            self._apply_paragraph_format(p, code_block_style_config)
+            # Remove first line indent for code blocks, if any was inherited
+            p.paragraph_format.first_line_indent = None 
 
-        elif tag_name == 'ul' or tag_name == 'ol':
-            # Recursively call _process_list with increased level
-            self._process_list(doc, element, current_level, md_dir)
+            # Add code lines with font styling
+            # Split lines carefully to preserve empty lines
+            lines = code_text.split('\n')
+            for i, line_text in enumerate(lines):
+                run = p.add_run(line_text)
+                self._apply_font_style(run, code_block_style_config)
+                if i < len(lines) - 1: # Add line break for all but last line
+                    run.add_break()
+            
+            # Set space after the table itself to match paragraph spacing
+            # This is done by adding an empty paragraph after the table with appropriate spacing.
+            # Or, by adjusting the spacing of the paragraph containing the table (if possible, complex)
+            # Easiest: Set space_after on the paragraph *inside* the cell if that's the only content.
+            # The _apply_paragraph_format on 'p' already handles its internal spacing.
+            # The spacing of the table element itself in the document flow is harder to control directly.
+            # Add a small paragraph after the table to manage spacing if needed
+            # However, the problem asks for 'space_after_pt' on the code_block style.
+            # This implies the block itself should have this spacing.
+            # Let's ensure the paragraph AFTER the table has the space_before from the next element,
+            # and this code block's paragraph (inside cell) has its space_after.
+            # This seems to be what the current _apply_paragraph_format does.
+
+
+        elif tag_name in ['ul', 'ol']:
+            self._process_list(doc, element, md_dir, current_list_level)
 
         elif tag_name == 'table':
-            header_row = element.find('thead').find('tr') if element.find('thead') else None
-            body_rows = element.find('tbody').find_all('tr') if element.find('tbody') else element.find_all('tr')
-
-            if not body_rows and header_row:
-                 body_rows = []
-
-            if not header_row and not body_rows:
-                return
+            # This is for Markdown tables.
+            # Assuming standard Markdown table structure (thead, tbody, tr, th, td)
+            # Use a default table style from docx, e.g., 'TableGrid' or a custom one.
+            
+            html_rows = element.find_all('tr')
+            if not html_rows: return
 
             num_cols = 0
-            if header_row:
-                num_cols = len(header_row.find_all(['th', 'td']))
-            elif body_rows:
-                num_cols = len(body_rows[0].find_all(['th', 'td']))
-            
+            first_row_cells = html_rows[0].find_all(['th', 'td'])
+            num_cols = len(first_row_cells)
             if num_cols == 0: return
 
-            word_table = doc.add_table(rows=0, cols=num_cols)
-            word_table.style = 'TableGrid'
+            word_table = doc.add_table(rows=1, cols=num_cols) # Start with 1 row for header or first data row
+            word_table.style = 'TableGrid' # Apply a basic grid style
 
-            if header_row:
-                cells = header_row.find_all(['th', 'td'])
-                row = word_table.add_row().cells
-                for i, cell_content in enumerate(cells):
+            # Populate header row if <thead> or <th> exists in first row
+            is_header_row = any(c.name == 'th' for c in first_row_cells)
+            if is_header_row:
+                header_cells_html = html_rows[0].find_all('th')
+                for i, cell_html in enumerate(header_cells_html):
                     if i < num_cols:
-                        p = row[i].paragraphs[0]
-                        p.clear()
-                        # Apply indentation to cell paragraph if table is within a list
-                        if current_level > 0:
-                            p.paragraph_format.left_indent = base_indent
-
-                        run = p.add_run(cell_content.get_text())
-                        self._apply_font_style(run, self.styles_config.get('paragraph', {}))
+                        cell_text = cell_html.get_text().strip()
+                        # Apply basic header styling (bold, centered) to run
+                        run = word_table.cell(0, i).paragraphs[0].add_run(cell_text)
                         run.bold = True
-                        self._apply_paragraph_format(p, {'alignment': 'CENTER'})
+                        # TODO: Use a 'table_header' style from self.styles_config if defined
+                        word_table.cell(0, i).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                data_rows_html = html_rows[1:]
+            else:
+                # No explicit header, first row is data
+                for i, cell_html in enumerate(first_row_cells):
+                     if i < num_cols:
+                        word_table.cell(0,i).text = cell_html.get_text().strip()
+                        # TODO: Apply 'table_cell' style
+                data_rows_html = html_rows[1:]
 
-            for body_row_html in body_rows:
-                cells = body_row_html.find_all('td')
-                row = word_table.add_row().cells
-                for i, cell_content in enumerate(cells):
+            # Populate data rows
+            for html_row in data_rows_html:
+                docx_row_cells = word_table.add_row().cells
+                html_cells = html_row.find_all('td')
+                for i, cell_html in enumerate(html_cells):
                     if i < num_cols:
-                        p = row[i].paragraphs[0]
-                        p.clear()
-                        # Apply indentation to cell paragraph if table is within a list
-                        if current_level > 0:
-                            p.paragraph_format.left_indent = base_indent
-                        run = p.add_run(cell_content.get_text())
-                        self._apply_font_style(run, self.styles_config.get('paragraph', {}))
+                        docx_row_cells[i].text = cell_html.get_text().strip()
+                        # TODO: Apply 'table_cell' style
+
 
         elif tag_name == 'hr':
             p = doc.add_paragraph()
-            if current_level > 0:
-                p.paragraph_format.left_indent = base_indent
-            p_format = p.paragraph_format
-            p_format.space_before = Pt(6)
-            p_format.space_after = Pt(6)
-            
+            # Add a horizontal rule using paragraph border
             pPr = p._element.get_or_add_pPr()
             pBdr = OxmlElement('w:pBdr')
-            bottom = OxmlElement('w:bottom')
-            bottom.set(qn('w:val'), 'single')
-            bottom.set(qn('w:sz'), '6') # 1/2 pt line
-            bottom.set(qn('w:space'), '1')
-            bottom.set(qn('w:color'), 'auto')
-            pBdr.append(bottom)
+            bottom_border = OxmlElement('w:bottom')
+            bottom_border.set(qn('w:val'), 'single')
+            bottom_border.set(qn('w:sz'), '6') # Border size (e.g., 6 = 0.75pt)
+            bottom_border.set(qn('w:space'), '1') # Space attribute
+            bottom_border.set(qn('w:color'), 'auto') # Or a specific hex color
+            pBdr.append(bottom_border)
             pPr.append(pBdr)
+            # Add some spacing around HR if not handled by adjacent elements
+            p.paragraph_format.space_before = Pt(6)
+            p.paragraph_format.space_after = Pt(6)
+        
+        elif tag_name == 'blockquote':
+            # Blockquotes can contain other block elements.
+            # Add a paragraph with specific styling for blockquote, then process children.
+            # For Word, this might involve indenting and perhaps a left border or different font style.
+            # Simplest: indent and recurse.
+            # More complex: create a specific blockquote paragraph style in Word.
+            # For now, just process children with increased nesting level for indentation.
+            for child_element in element.children:
+                if isinstance(child_element, Tag) or (isinstance(child_element, NavigableString) and child_element.strip()):
+                    self._process_html_element(doc, child_element, md_dir, current_list_level + 1, in_list_item)
+
+
+    def _process_list(self, doc, list_element_html, md_dir, level):
+        """ Processes <ul> or <ol> list elements. `level` is the nesting depth. """
+        # print(f"Processing list: {list_element_html.name}, level: {level}")
+        list_items_html = list_element_html.find_all('li', recursive=False)
+        
+        for item_html in list_items_html:
+            self._process_list_item_content(doc, item_html, md_dir, level, list_element_html.name)
+
+
+    def _process_list_item_content(self, doc, item_html, md_dir, list_level, list_type_tag):
+        """
+        Processes the content of an <li> item.
+        An <li> can contain inline text, then other block elements (like nested lists, paragraphs, code blocks).
+        """
+        # print(f"Processing li item, level: {list_level}")
+        para_style_config = self.styles_config.get('paragraph', self.DEFAULT_STYLES_CONFIG['paragraph'])
+        
+        # Determine the Word list style name
+        # python-docx uses 'ListBullet' or 'ListNumber' for the first level.
+        # For nested lists, it automatically cycles through 'ListBullet2/ListNumber2', etc., if defined in template.
+        # Or, we can manage indentation manually.
+        # For simplicity and control, we'll manage indentation and use base styles.
+        
+        style_name = 'ListBullet' if list_type_tag == 'ul' else 'ListNumber'
+        
+        # The first paragraph of the list item carries the bullet/number.
+        # Subsequent block elements inside <li> will be new paragraphs indented further.
+        
+        first_para_in_item = None
+        
+        # Iterate over children of <li>. The first sequence of inline content forms the main list item text.
+        current_block_is_first_in_li = True
+
+        for child_node in item_html.contents:
+            if isinstance(child_node, NavigableString) and child_node.strip():
+                if first_para_in_item is None:
+                    first_para_in_item = doc.add_paragraph(style=style_name)
+                    self._apply_paragraph_format(first_para_in_item, para_style_config) # Apply para styles
+                    first_para_in_item.paragraph_format.left_indent = Cm(1.27 * list_level) # Indent based on level
+                    # Negative first_line_indent for hanging bullet/number
+                    first_para_in_item.paragraph_format.first_line_indent = Cm(-0.635) 
+
+                self._add_inline_content_to_paragraph(first_para_in_item, child_node, para_style_config, md_dir)
+                current_block_is_first_in_li = False
+
+            elif isinstance(child_node, Tag):
+                # Inline tags (strong, em, code, img, a)
+                if child_node.name in ['strong', 'b', 'em', 'i', 'code', 'a', 'img', 'br']:
+                    if first_para_in_item is None:
+                        first_para_in_item = doc.add_paragraph(style=style_name)
+                        self._apply_paragraph_format(first_para_in_item, para_style_config)
+                        first_para_in_item.paragraph_format.left_indent = Cm(1.27 * list_level)
+                        first_para_in_item.paragraph_format.first_line_indent = Cm(-0.635)
+                    
+                    self._add_inline_content_to_paragraph(first_para_in_item, child_node, para_style_config, md_dir)
+                    current_block_is_first_in_li = False
+                
+                # Block-level tags (p, ul, ol, pre, table, hr, blockquote, h1-h6)
+                else:
+                    if first_para_in_item is None and current_block_is_first_in_li:
+                        # If a block element (e.g. <p> or <pre>) is the *very first thing* in an <li>,
+                        # it might need special handling or an empty leading paragraph for the bullet.
+                        # For now, let's ensure there's a paragraph for the bullet if no text preceded.
+                        # This typically happens if Markdown is like: `* <p>text</p>` (less common)
+                        # Usually it's `* text <p>more</p>` or `* text\n  * nested`
+                        # Let's assume for now that block elements start *after* some initial list item text or directly.
+                        # If a block like <p> is first, _process_html_element will create its own paragraph.
+                        # We need to ensure the list bullet style is applied correctly.
+                        # This logic can get complex. A simpler model: list item always starts a paragraph.
+                        # If the first child_node is a block, we create the list item paragraph, then process the block.
+                        first_para_in_item = doc.add_paragraph(style=style_name) # Create the bullet paragraph
+                        self._apply_paragraph_format(first_para_in_item, para_style_config)
+                        first_para_in_item.paragraph_format.left_indent = Cm(1.27 * list_level)
+                        first_para_in_item.paragraph_format.first_line_indent = Cm(-0.635)
+                        # This paragraph might remain empty if the block takes all content.
+
+                    # Process the block element. It will be indented further than the list item's bullet.
+                    # The `current_list_level` for a block *inside* a list item should be `list_level + 1` for indentation purposes.
+                    self._process_html_element(doc, child_node, md_dir, current_list_level=list_level + 1, in_list_item=True)
+                    current_block_is_first_in_li = False # Subsequent blocks are not the first.
+        
+        # If li was empty or only contained whitespace, first_para_in_item might still be None.
+        # Add an empty paragraph with list style to represent an empty list item.
+        if first_para_in_item is None:
+            first_para_in_item = doc.add_paragraph(style=style_name)
+            self._apply_paragraph_format(first_para_in_item, para_style_config)
+            first_para_in_item.paragraph_format.left_indent = Cm(1.27 * list_level)
+            first_para_in_item.paragraph_format.first_line_indent = Cm(-0.635)
+
+
 
     def markdown_to_docx(self, md_file_path, docx_file_path):
         if not os.path.exists(md_file_path):
-            print(f"错误: Markdown文件 \'{md_file_path}\' 不存在。")
-            return
+            raise FileNotFoundError(f"Markdown file '{md_file_path}' not found.")
 
         md_dir = os.path.dirname(os.path.abspath(md_file_path))
 
         with open(md_file_path, 'r', encoding='utf-8') as f:
             md_content = f.read()
 
-        html_content = markdown.markdown(md_content, extensions=['fenced_code', 'tables', 'sane_lists'])
+        # Extensions: fenced_code, tables, sane_lists are good.
+        # 'nl2br' (newline to <br>) can be useful but might interact with paragraph spacing.
+        # 'extra' includes many useful ones like footnotes, abbreviations, def_list, etc.
+        html_content = markdown.markdown(md_content, extensions=['fenced_code', 'tables', 'sane_lists', 'extra'])
         soup = BeautifulSoup(html_content, 'html.parser')
+        
         doc = Document()
 
-        default_font_name = self.styles_config.get('paragraph', {}).get('font_name', '宋体')
-        default_font_size = self.styles_config.get('paragraph', {}).get('font_size', 12)
+        # Set default document font based on 'paragraph' style (if defined)
+        # This affects the 'Normal' style, which is the base for most other styles.
+        paragraph_style_config = self.styles_config.get('paragraph', self.DEFAULT_STYLES_CONFIG['paragraph'])
+        normal_style = doc.styles['Normal']
+        normal_font = normal_style.font
+        normal_font.name = paragraph_style_config.get('font_name', 'Calibri')
+        if normal_font.name:
+            normal_font.element.rPr.rFonts.set(qn('w:eastAsia'), normal_font.name)
+        normal_font.size = Pt(paragraph_style_config.get('font_size', 11))
         
-        style = doc.styles['Normal']
-        style.font.name = default_font_name
-        style.element.rPr.rFonts.set(qn('w:eastAsia'), default_font_name)
-        style.font.size = Pt(default_font_size)
+        # Apply paragraph formatting from 'paragraph' style to 'Normal' style
+        # This is less direct, usually you apply to paragraphs, not the style itself this way for all props.
+        # For now, let _apply_paragraph_format handle individual paragraphs.
 
-        for element in soup.find_all(True, recursive=False):
-            self._process_html_element(doc, element, md_dir)
+        # Define or update built-in styles (H1-H6, ListBullet, ListNumber)
+        # This is more robust for Word interoperability.
+        for i in range(1, 7):
+            style_key = f'H{i}'
+            if style_key in self.styles_config:
+                h_style_conf = self.styles_config[style_key]
+                try:
+                    h_style_docx = doc.styles[f'Heading {i}']
+                except KeyError: # Style might not exist if using a very blank template
+                    h_style_docx = doc.add_style(f'Heading {i}', WD_STYLE_TYPE.PARAGRAPH)
+                    h_style_docx.base_style = normal_style # Base it on Normal
+                
+                # Apply font
+                h_font = h_style_docx.font
+                h_font.name = h_style_conf.get('font_name', normal_font.name)
+                if h_font.name: h_font.element.rPr.rFonts.set(qn('w:eastAsia'), h_font.name)
+                h_font.size = Pt(h_style_conf.get('font_size', normal_font.size.pt))
+                h_font.bold = h_style_conf.get('bold', False)
+                h_font.italic = h_style_conf.get('italic', False)
+                if 'color_rgb' in h_style_conf: h_font.color.rgb = RGBColor(*h_style_conf['color_rgb'])
+
+                # Apply paragraph format to the style
+                h_p_fmt = h_style_docx.paragraph_format
+                if 'space_before_pt' in h_style_conf: h_p_fmt.space_before = Pt(h_style_conf['space_before_pt'])
+                if 'space_after_pt' in h_style_conf: h_p_fmt.space_after = Pt(h_style_conf['space_after_pt'])
+                if 'line_spacing' in h_style_conf: h_p_fmt.line_spacing = h_style_conf['line_spacing']
+                # Alignment for heading styles
+                alignment_map = {'LEFT': WD_ALIGN_PARAGRAPH.LEFT, 'CENTER': WD_ALIGN_PARAGRAPH.CENTER, 'RIGHT': WD_ALIGN_PARAGRAPH.RIGHT, 'JUSTIFY': WD_ALIGN_PARAGRAPH.JUSTIFY}
+                h_p_fmt.alignment = alignment_map.get(str(h_style_conf.get('alignment', 'LEFT')).upper(), WD_ALIGN_PARAGRAPH.LEFT)
+
+
+        # Process all top-level HTML elements generated by Markdown
+        for element in soup.find_all(True, recursive=False): # True finds all tags
+            self._process_html_element(doc, element, md_dir, current_list_level=0)
             
         doc.save(docx_file_path)
-        print(f"成功将 \'{md_file_path}\' 转换为 \'{docx_file_path}\'")
+        print(f"Successfully converted '{md_file_path}' to '{docx_file_path}'")
+
 
     def load_styles(self, file_path="styles_config.json"):
+        # Try to load styles, if fails or not found, self.styles_config remains default
         if os.path.exists(file_path):
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     loaded_config = json.load(f)
-                    # Convert list (from JSON) back to tuple for RGBColor
-                    for key, value in loaded_config.items():
-                        if 'color_rgb' in value and isinstance(value['color_rgb'], list):
-                            value['color_rgb'] = tuple(value['color_rgb'])
-                    self.styles_config.update(loaded_config)
-                print(f"样式已从 \'{file_path}\' 加载。")
+                
+                # Update self.styles_config: start with defaults, then update with loaded
+                # This ensures all necessary style keys are present.
+                base_styles = {k: v.copy() for k, v in self.DEFAULT_STYLES_CONFIG.items()}
+                for style_name, style_data in loaded_config.items():
+                    if style_name in base_styles:
+                        if isinstance(style_data, dict):
+                             base_styles[style_name].update(style_data) # Update existing default style
+                    else: # New style not in defaults
+                        if isinstance(style_data, dict):
+                            base_styles[style_name] = style_data.copy() 
+                
+                self.styles_config = base_styles
+                self._ensure_rgb_tuples() # Convert any list RGBs to tuples
+                # print(f"Styles loaded and merged from '{file_path}'.")
             except json.JSONDecodeError as e:
-                print(f"错误: 无法解析样式配置文件 \'{file_path}\'\\: {e}")
+                print(f"Error: Could not parse styles_config.json: {e}. Using default styles.")
+                self.styles_config = {k: v.copy() for k, v in self.DEFAULT_STYLES_CONFIG.items()}
             except Exception as e:
-                print(f"加载样式时发生未知错误: {e}")
+                print(f"Error loading styles: {e}. Using default styles.")
+                self.styles_config = {k: v.copy() for k, v in self.DEFAULT_STYLES_CONFIG.items()}
         else:
-            print(f"样式配置文件 \'{file_path}\' 不存在，使用默认样式。")
+            # print(f"Styles file '{file_path}' not found. Using default styles.")
+            self.styles_config = {k: v.copy() for k, v in self.DEFAULT_STYLES_CONFIG.items()}
+        self._ensure_rgb_tuples()
+
 
     def save_styles(self, file_path="styles_config.json"):
         try:
-            # Convert tuples (RGBColor) to lists for JSON serialization
-            serializable_config = self.styles_config.copy()
-            for key, value in serializable_config.items():
-                if 'color_rgb' in value and isinstance(value['color_rgb'], tuple):
-                    value['color_rgb'] = list(value['color_rgb'])
+            # Prepare a serializable copy (e.g., convert RGB tuples to lists)
+            serializable_config = {}
+            for key, value_dict in self.styles_config.items():
+                style_copy = value_dict.copy()
+                if 'color_rgb' in style_copy and isinstance(style_copy['color_rgb'], tuple):
+                    style_copy['color_rgb'] = list(style_copy['color_rgb'])
+                serializable_config[key] = style_copy
             
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(serializable_config, f, ensure_ascii=False, indent=4)
-            print(f"样式已保存到 \'{file_path}\'。")
+            # print(f"Styles saved to '{file_path}'.")
         except Exception as e:
-            print(f"保存样式时发生错误: {e}")
+            print(f"Error saving styles to '{file_path}': {e}")
 
     def get_styles(self):
-        return self.styles_config
+        # Return a deep copy to prevent external modification of internal state
+        return {k: v.copy() for k, v in self.styles_config.items()}
 
     def set_styles(self, new_styles):
-        self.styles_config = new_styles
-        # Ensure RGB colors are tuples if they come as lists from GUI
-        for key, value in self.styles_config.items():
-            if 'color_rgb' in value and isinstance(value['color_rgb'], list):
-                value['color_rgb'] = tuple(value['color_rgb'])
-
-    def _process_list(self, doc, list_element, level, md_dir):
-        """
-        递归处理嵌套列表
-        :param doc: Word文档对象
-        :param list_element: 列表元素(ul/ol)
-        :param level: 当前嵌套层级
-        :param md_dir: Markdown文件所在目录，用于解析图片路径
-        """
-        list_type = list_element.name  # 'ul' or 'ol'
-        list_items = list_element.find_all('li', recursive=False)
-        
-        for item_html_element in list_items:
-            # 创建列表项段落
-            list_style_name = 'ListBullet' if list_type == 'ul' else 'ListNumber'
-            p = doc.add_paragraph(style=list_style_name)
-            
-            # 设置列表缩进 (每级缩进0.5英寸)
-            p.paragraph_format.left_indent = Inches(0.5 * level)
-            p.paragraph_format.first_line_indent = Inches(-0.5)  # 悬挂缩进
-            
-            # 处理列表项内容 (包括内联和块级元素)
-            self._process_list_item_content(doc, p, item_html_element, md_dir, level)
-
-    def _process_list_item_content(self, doc, list_item_paragraph, item_html_element, md_dir, level):
-        """
-        处理列表项中的所有内容，包括内联元素和块级元素。
-        :param doc: Word文档对象
-        :param list_item_paragraph: 为当前列表项创建的第一个段落（用于列表符号和首行文本）
-        :param item_html_element: 当前列表项的BeautifulSoup Tag对象 (the <li> tag)
-        :param md_dir: Markdown文件所在目录
-        :param level: 当前列表的嵌套层级
-        """
-        para_style = self.styles_config['paragraph']
-        
-        
-        current_inline_paragraph = list_item_paragraph 
-        
-       
-        has_block_content_started = False
-
-        for child in item_html_element.contents: # Use .contents to get NavigableString and Tag
-            if isinstance(child, NavigableString):
-                text_content = str(child).strip()
-                if text_content: # Only add if not empty string
-                    if not has_block_content_started:
-                        # Add to the initial list item paragraph
-                        self._add_inline_content_to_paragraph(current_inline_paragraph, child, para_style, md_dir)
-                    else:
-                        # Create a new paragraph for text after a block
-                        new_p = doc.add_paragraph()
-                        new_p.paragraph_format.left_indent = Inches(0.5 * (level + 1))
-                        self._add_inline_content_to_paragraph(new_p, child, para_style, md_dir)
-                        self._apply_paragraph_format(new_p, para_style)
-                        current_inline_paragraph = new_p # Update current for subsequent inline content
-
-            elif isinstance(child, Tag):
-                if child.name in ['strong', 'b', 'em', 'i', 'code', 'a', 'img']: # Inline elements
-                    if not has_block_content_started:
-                        self._add_inline_content_to_paragraph(current_inline_paragraph, child, para_style, md_dir)
-                    else:
-                        # Create a new paragraph for inline content after a block
-                        new_p = doc.add_paragraph()
-                        new_p.paragraph_format.left_indent = Inches(0.5 * (level + 1))
-                        self._add_inline_content_to_paragraph(new_p, child, para_style, md_dir)
-                        self._apply_paragraph_format(new_p, para_style)
-                        current_inline_paragraph = new_p # Update current for subsequent inline content
-
-                elif child.name in ['ul', 'ol']:
-                    # Recursively process nested lists
-                    self._process_list(doc, child, level + 1, md_dir)
-                    has_block_content_started = True # Treat nested list as a block that breaks inline flow
-                else: 
-                    has_block_content_started = True 
-                    self._process_html_element(doc, child, md_dir, current_level=level + 1)
+        # Set with a deep copy
+        self.styles_config = {k: v.copy() for k, v in new_styles.items()}
+        self._ensure_rgb_tuples() # Ensure RGBs are tuples after setting
 
     def markdown_to_html(self, md_content, md_dir=None):
         """
-        将Markdown内容转换为HTML，并尝试注入CSS样式以模拟Word样式。
-        :param md_content: Markdown文本内容
-        :param md_dir: Markdown文件所在的目录，用于解析相对图片路径
+        Converts Markdown content to an HTML fragment string.
+        Image 'src' paths are converted to absolute 'file:///' URLs if they are local.
+        This HTML fragment is intended to be embedded in the QWebEngineView.
+        The styles for preview are applied by WordPreviewWidget via its dynamic CSS.
         """
-        html_content = markdown.markdown(md_content, extensions=['fenced_code', 'tables', 'sane_lists'])
-        soup = BeautifulSoup(html_content, 'html.parser')
+        html_fragment = markdown.markdown(md_content, extensions=['fenced_code', 'tables', 'sane_lists', 'extra'])
+        soup = BeautifulSoup(html_fragment, 'html.parser')
 
-        # Convert relative image paths to absolute paths for HTML preview
-        if md_dir:
+        if md_dir: # md_dir is the directory of the Markdown file
             for img_tag in soup.find_all('img'):
                 img_src = img_tag.get('src')
-                if img_src and not (img_src.startswith('http://') or img_src.startswith('https://') or img_src.startswith('file://')):
-                    # 这是一个相对路径，转换为绝对文件URL
-                    abs_img_path = os.path.abspath(os.path.join(md_dir, img_src))
-                    # 使用QUrl.fromLocalFile()来确保正确的file:// URL格式，它会处理平台差异
-                    img_tag['src'] = QUrl.fromLocalFile(abs_img_path).toString()
+                if img_src:
+                    # Skip if it's already an absolute web URL
+                    if img_src.startswith(('http://', 'https://')):
+                        continue
+                    
+                    abs_fs_path = ""
+                    if img_src.startswith('file:///'):
+                        # If it's already a file URL, try to normalize it
+                        q_url = QUrl(img_src)
+                        if q_url.isLocalFile():
+                            abs_fs_path = q_url.toLocalFile()
+                        else: # Malformed file URL, try to treat the rest as path
+                            path_part = img_src[len('file:///'):]
+                            if os.path.isabs(path_part): abs_fs_path = path_part
+                            else: abs_fs_path = os.path.abspath(os.path.join(md_dir, path_part))
 
-        # 动态生成CSS
-        css_styles = []
-        for style_key, config in self.styles_config.items():
-            if style_key.startswith('H'):
-                tag = style_key.lower()
-                css = f"{tag} {{"
-                if 'font_name' in config: css += f"font-family: '{config['font_name']}';"
-                if 'font_size' in config: css += f"font-size: {config['font_size']}pt;"
-                if 'bold' in config and config['bold']: css += "font-weight: bold;"
-                if 'italic' in config and config['italic']: css += "font-style: italic;"
-                if 'color_rgb' in config: css += f"color: rgb({config['color_rgb'][0]}, {config['color_rgb'][1]}, {config['color_rgb'][2]});"
-                if 'space_before_pt' in config: css += f"margin-top: {config['space_before_pt']}pt;"
-                if 'space_after_pt' in config: css += f"margin-bottom: {config['space_after_pt']}pt;"
-                css += "}"
-                css_styles.append(css)
-            elif style_key == 'paragraph':
-                css = "p {"
-                if 'font_name' in config: css += f"font-family: '{config['font_name']}';"
-                if 'font_size' in config: css += f"font-size: {config['font_size']}pt;"
-                if 'bold' in config and config['bold']: css += "font-weight: bold;"
-                if 'italic' in config and config['italic']: css += "font-style: italic;"
-                if 'color_rgb' in config: css += f"color: rgb({config['color_rgb'][0]}, {config['color_rgb'][1]}, {config['color_rgb'][2]});"
-                if 'line_spacing' in config: css += f"line-height: {config['line_spacing']};"
-                if 'first_line_indent_cm' in config: css += f"text-indent: {config['first_line_indent_cm']}cm;"
-                if 'space_after_pt' in config: css += f"margin-bottom: {config['space_after_pt']}pt;"
-                css += "}"
-                css_styles.append(css)
-            elif style_key == 'code_block':
-                css = "pre, code.block {" # Target pre for block code
-                if 'font_name' in config: css += f"font-family: '{config['font_name']}';"
-                if 'font_size' in config: css += f"font-size: {config['font_size']}pt;"
-                if 'bold' in config and config['bold']: css += "font-weight: bold;"
-                if 'italic' in config and config['italic']: css += "font-style: italic;"
-                if 'color_rgb' in config: css += f"color: rgb({config['color_rgb'][0]}, {config['color_rgb'][1]}, {config['color_rgb'][2]});"
-                if 'background_color' in config: css += f"background-color: #{config['background_color']};"
-                if 'line_spacing' in config: css += f"line-height: {config['line_spacing']};"
-                css += "padding: 10px; border: 1px solid #ccc; overflow: auto;}"
-                css_styles.append(css)
-            elif style_key == 'inline_code':
-                css = "p code, li code {" # Target inline code within p and li
-                if 'font_name' in config: css += f"font-family: '{config['font_name']}';"
-                # Calculate font size based on paragraph's font size and ratio
-                para_font_size = self.styles_config.get('paragraph', {}).get('font_size', 12)
-                font_size_ratio = config.get('font_size_ratio', 0.9)
-                css += f"font-size: {para_font_size * font_size_ratio}pt;"
-                if 'color_rgb' in config: css += f"color: rgb({config['color_rgb'][0]}, {config['color_rgb'][1]}, {config['color_rgb'][2]});"
-                css += "background-color: #f0f0f0; padding: 2px 4px; border-radius: 3px;}"
-                css_styles.append(css)
-
-        # 添加列表样式
-        css_styles.append("ul, ol { margin-left: 20px; }")
-        css_styles.append("li { margin-bottom: 5px; }")
-        css_styles.append("table { border-collapse: collapse; width: 100%; }")
-        css_styles.append("th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }")
-        css_styles.append("th { background-color: #f2f2f2; text-align: center; font-weight: bold; }")
-        css_styles.append("img { max-width: 100%; height: auto; }") # Ensure images fit in preview
-
-        full_html = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <title>Markdown Preview</title>
-            <style>
-                body {{ font-family: '{}'; font-size: {}pt; line-height: {}; }}
-                {}
-            </style>
-        </head>
-        <body>
-            {}
-        </body>
-        </html>
-        """.format(
-            self.styles_config.get('paragraph', {}).get('font_name', '宋体'),
-            self.styles_config.get('paragraph', {}).get('font_size', 12),
-            self.styles_config.get('paragraph', {}).get('line_spacing', 1.5),
-            "\n".join(css_styles),
-            html_content
-        )
-        return full_html
+                    elif os.path.isabs(img_src): # Absolute local path
+                        abs_fs_path = img_src
+                    else: # Relative local path
+                        abs_fs_path = os.path.abspath(os.path.join(md_dir, img_src))
+                    
+                    if abs_fs_path: # If a path was determined
+                        if os.path.exists(abs_fs_path):
+                            # Convert the validated absolute file system path to a file:/// URL
+                            img_tag['src'] = QUrl.fromLocalFile(abs_fs_path).toString()
+                        else:
+                            print(f"Preview Warning: Image file not found at resolved path: {abs_fs_path} (original src: {img_src})")
+                            # Optionally, could set src to a placeholder or remove it
+                    # else:
+                        # print(f"Preview Debug: Could not determine absolute file path for img src: {img_src}")
+        
+        return str(soup) # Return the modified HTML fragment
