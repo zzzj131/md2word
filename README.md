@@ -44,18 +44,12 @@ python main.py
 本项目依赖以下 Python 库：
 
 *   `beautifulsoup4`
-*   `importlib_metadata`
-*   `lxml`
-*   `Markdown`
-*   `pillow`
-*   `pip`
 *   `PyQt5`
 *   `PyQt5-Qt5`
 *   `PyQt5_sip`
 *   `PyQtWebEngine`
 *   `PyQtWebEngine-Qt5`
 *   `python-docx`
-*   `setuptools`
 *   `soupsieve`
 *   `typing_extensions`
 

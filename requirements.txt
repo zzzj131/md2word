@@ -2,15 +2,12 @@ beautifulsoup4==4.13.4
 importlib_metadata==8.7.0
 lxml==5.4.0
 Markdown==3.8
-pillow==11.2.1
-pip==25.1
 PyQt5==5.15.11
 PyQt5-Qt5==5.15.2
 PyQt5_sip==12.17.0
 PyQtWebEngine==5.15.7
 PyQtWebEngine-Qt5==5.15.2
 python-docx==1.1.2
-setuptools==78.1.1
 soupsieve==2.7
 
 
